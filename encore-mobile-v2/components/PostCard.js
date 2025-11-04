@@ -101,7 +101,7 @@ export default function PostCard({
         {post.tags && (
           <View style={styles.hashtagContainer}>
             {post.tags.map((tag, index) => (
-              <TouchableOpacity key={index}>
+              <TouchableOpacity key={`${post.id || 'post'}-tag-${index}-${tag}-${Math.random().toString(36).substr(2, 9)}`}>
                 <Text style={styles.hashtag}>#{tag} </Text>
               </TouchableOpacity>
             ))}
@@ -146,12 +146,12 @@ export default function PostCard({
             <Text style={styles.audioDuration}>{post.audio.duration}</Text>
           </View>
           <View style={styles.waveform}>
-            <View style={styles.waveBar} />
-            <View style={[styles.waveBar, { height: 20 }]} />
-            <View style={[styles.waveBar, { height: 15 }]} />
-            <View style={[styles.waveBar, { height: 25 }]} />
-            <View style={[styles.waveBar, { height: 10 }]} />
-            <View style={[styles.waveBar, { height: 18 }]} />
+            {[12, 20, 15, 25, 10, 18].map((height, index) => (
+              <View 
+                key={`${post.id || 'post'}-wave-${index}-${height}`} 
+                style={[styles.waveBar, { height }]} 
+              />
+            ))}
           </View>
         </View>
       )}

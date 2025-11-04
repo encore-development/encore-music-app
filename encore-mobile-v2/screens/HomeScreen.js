@@ -19,6 +19,9 @@ export default function HomeScreen({ refreshTrigger }) {
   const [posts, setPosts] = useState([]);
   const [feedType, setFeedType] = useState('personalized'); // 'personalized', 'trending', 'chronological'
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
 
   useEffect(() => {
     loadFeed();
@@ -48,9 +51,16 @@ export default function HomeScreen({ refreshTrigger }) {
     };
   }, []);
 
-  const loadFeed = async () => {
+  const loadFeed = async (page = 1, append = false) => {
     try {
-      setLoading(true);
+      if (!append) {
+        setLoading(true);
+        setCurrentPage(1);
+        setHasMorePosts(true);
+      } else {
+        setLoadingMore(true);
+      }
+
       let feedResult;
 
       switch (feedType) {
@@ -85,25 +95,60 @@ export default function HomeScreen({ refreshTrigger }) {
           postType: post.type
         }));
 
-        // If no real posts, mix with sample posts
+        // Get sample posts for current page
+        const samplePosts = getSamplePosts(page);
+        
+        // Check if we have more posts
+        const hasMore = samplePosts.length > 0;
+        setHasMorePosts(hasMore);
+
         if (formattedPosts.length === 0) {
-          console.log('No real posts found, showing sample posts');
-          setPosts(getSamplePosts());
+          console.log('No real posts found, showing sample posts for page:', page);
+          if (append) {
+            setPosts(prevPosts => {
+              const newPosts = [...prevPosts, ...samplePosts];
+              return removeDuplicatePosts(newPosts);
+            });
+          } else {
+            setPosts(samplePosts);
+          }
         } else {
           console.log('Showing real posts:', formattedPosts.length);
-          // Mix real posts with some sample posts for better experience
-          const samplePosts = getSamplePosts().slice(0, 2);
-          setPosts([...formattedPosts, ...samplePosts]);
+          // For real posts, we'll just show them without pagination for now
+          if (!append) {
+            const initialSamplePosts = getSamplePosts(1);
+            const allPosts = [...formattedPosts, ...initialSamplePosts];
+            setPosts(removeDuplicatePosts(allPosts));
+          }
         }
       } else {
-        console.log('Feed loading failed, showing sample posts');
-        setPosts(getSamplePosts());
+        console.log('Feed loading failed, showing sample posts for page:', page);
+        const samplePosts = getSamplePosts(page);
+        if (append) {
+          setPosts(prevPosts => {
+            const newPosts = [...prevPosts, ...samplePosts];
+            return removeDuplicatePosts(newPosts);
+          });
+        } else {
+          setPosts(samplePosts);
+        }
+        setHasMorePosts(samplePosts.length > 0);
       }
     } catch (error) {
       console.error('Error loading feed:', error);
-      setPosts(getSamplePosts());
+      const samplePosts = getSamplePosts(page);
+      if (append) {
+        setPosts(prevPosts => {
+          const newPosts = [...prevPosts, ...samplePosts];
+          return removeDuplicatePosts(newPosts);
+        });
+      } else {
+        setPosts(samplePosts);
+      }
+      setHasMorePosts(samplePosts.length > 0);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -118,60 +163,168 @@ export default function HomeScreen({ refreshTrigger }) {
     return `${diffDays}d`;
   };
 
-  const getSamplePosts = () => [
-    {
-      username: "encore_music",
-      imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&h=600&fit=crop",
-      description: "Vibe check 🎶✨ Just dropped this new track and the energy is unmatched!",
-      hashtags: ["music", "encore", "vibes", "newtrack"],
-      userType: "artist",
-      postedTime: "2h",
-      audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-    },
-    {
-      username: "dj_wave",
-      imageUrl: "https://images.unsplash.com/photo-1507874457470-272b3c8d8ee2?w=600&h=600&fit=crop",
-      description: "Night at the decks 🔥 The crowd was absolutely electric tonight!",
-      hashtags: ["dj", "party", "live", "nightlife"],
-      userType: "fan",
-      postedTime: "5h",
-      audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-    },
-    {
-      username: "overflow.std",
-      imageUrl: "https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=600&h=600&fit=crop",
-      description: "Studio session vibes ✨ Working on something special...",
-      hashtags: ["music", "studio", "production", "beats"],
-      userType: "artist",
-      postedTime: "1d",
-    },
-    {
-      username: "the_vortex",
-      imageUrl: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=600&fit=crop",
-      description: "Live performance tonight! 🎤 Come join us for an unforgettable show",
-      hashtags: ["live", "concert", "music", "performance"],
-      userType: "fan",
-      postedTime: "3h",
-      audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
-    },
-    {
-      username: "synth_master",
-      imageUrl: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=600&h=600&fit=crop",
-      description: "New synthesizer setup! The sounds this thing makes are incredible 🎹",
-      hashtags: ["synth", "electronic", "gear", "music"],
-      userType: "artist",
-      postedTime: "6h",
-    },
-  ];
+  const getSamplePosts = (page = 1) => {
+    const allSamplePosts = [
+      // Page 1 Posts
+      {
+        id: "sample_1",
+        username: "encore_music",
+        displayName: "Encore Music",
+        imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&h=600&fit=crop",
+        description: "Vibe check 🎶✨ Just dropped this new track and the energy is unmatched!",
+        hashtags: ["music", "encore", "vibes", "newtrack"],
+        userType: "artist",
+        postedTime: "2h",
+        audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+        likes: 1247,
+        comments: 89,
+        shares: 23,
+      },
+      {
+        id: "sample_2",
+        username: "dj_wave",
+        displayName: "DJ Wave",
+        imageUrl: "https://images.unsplash.com/photo-1507874457470-272b3c8d8ee2?w=600&h=600&fit=crop",
+        description: "Night at the decks 🔥 The crowd was absolutely electric tonight!",
+        hashtags: ["dj", "party", "live", "nightlife"],
+        userType: "fan",
+        postedTime: "5h",
+        audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+        likes: 892,
+        comments: 45,
+        shares: 12,
+      },
+      {
+        id: "sample_3",
+        username: "overflow.std",
+        displayName: "Overflow",
+        imageUrl: "https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=600&h=600&fit=crop",
+        description: "Studio session vibes ✨ Working on something special...",
+        hashtags: ["music", "studio", "production", "beats"],
+        userType: "artist",
+        postedTime: "1d",
+        likes: 567,
+        comments: 34,
+        shares: 8,
+      },
+      // Page 2 Posts
+      {
+        id: "sample_4",
+        username: "the_vortex",
+        displayName: "The Vortex",
+        imageUrl: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=600&fit=crop",
+        description: "Live performance tonight! 🎤 Come join us for an unforgettable show",
+        hashtags: ["live", "concert", "music", "performance"],
+        userType: "fan",
+        postedTime: "3h",
+        audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+        likes: 423,
+        comments: 67,
+        shares: 15,
+      },
+      {
+        id: "sample_5",
+        username: "synth_master",
+        displayName: "Synth Master",
+        imageUrl: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=600&h=600&fit=crop",
+        description: "New synthesizer setup! The sounds this thing makes are incredible 🎹",
+        hashtags: ["synth", "electronic", "gear", "music"],
+        userType: "artist",
+        postedTime: "6h",
+        likes: 789,
+        comments: 52,
+        shares: 19,
+      },
+      {
+        id: "sample_6",
+        username: "beat_maker_pro",
+        displayName: "Beat Maker Pro",
+        imageUrl: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=600&fit=crop",
+        description: "Fresh beats dropping soon! 🎵 Can't wait to share this with y'all",
+        hashtags: ["beats", "hiphop", "producer", "music"],
+        userType: "artist",
+        postedTime: "8h",
+        likes: 634,
+        comments: 28,
+        shares: 11,
+      },
+      // Page 3 Posts
+      {
+        id: "sample_7",
+        username: "melody_queen",
+        displayName: "Melody Queen",
+        imageUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=600&h=600&fit=crop",
+        description: "Vocals session complete! ✨ This song is going to be special",
+        hashtags: ["vocals", "singing", "recording", "music"],
+        userType: "artist",
+        postedTime: "12h",
+        likes: 945,
+        comments: 73,
+        shares: 22,
+      },
+      {
+        id: "sample_8",
+        username: "bass_drop",
+        displayName: "Bass Drop",
+        imageUrl: "https://images.unsplash.com/photo-1520637836862-4d197d17c90a?w=600&h=600&fit=crop",
+        description: "That bass line hits different 🔊 Festival season ready!",
+        hashtags: ["bass", "festival", "edm", "electronic"],
+        userType: "fan",
+        postedTime: "15h",
+        likes: 512,
+        comments: 39,
+        shares: 16,
+      },
+      {
+        id: "sample_9",
+        username: "acoustic_soul",
+        displayName: "Acoustic Soul",
+        imageUrl: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=600&h=600&fit=crop",
+        description: "Unplugged session by the lake 🌅 Sometimes simple is beautiful",
+        hashtags: ["acoustic", "unplugged", "nature", "peaceful"],
+        userType: "artist",
+        postedTime: "18h",
+        likes: 378,
+        comments: 41,
+        shares: 9,
+      },
+    ];
 
-  useEffect(() => {
-    setPosts(initialPosts);
-  }, []);
+    // Return posts for specific page (3 posts per page)
+    const postsPerPage = 3;
+    const startIndex = (page - 1) * postsPerPage;
+    const endIndex = startIndex + postsPerPage;
+    
+    return allSamplePosts.slice(startIndex, endIndex);
+  };
+
+
+
+  // Helper function to remove duplicate posts
+  const removeDuplicatePosts = (posts) => {
+    const seen = new Set();
+    return posts.filter(post => {
+      const key = post.id || `${post.username}-${post.description}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const loadMorePosts = async () => {
+    if (loadingMore || !hasMorePosts) return;
+    
+    const nextPage = currentPage + 1;
+    setCurrentPage(nextPage);
+    await loadFeed(nextPage, true);
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
     FeedService.clearAllCache(); // Clear cache to get fresh content
-    await loadFeed();
+    await loadFeed(1, false);
     setRefreshing(false);
   };
 
@@ -219,7 +372,7 @@ export default function HomeScreen({ refreshTrigger }) {
           </TouchableOpacity>
           
           {['Live Now', 'DJ Set', 'Studio', 'Concert'].map((story, index) => (
-            <TouchableOpacity key={index} style={styles.storyItem}>
+            <TouchableOpacity key={`story-${index}-${story.replace(' ', '-')}-${Math.random().toString(36).substr(2, 9)}`} style={styles.storyItem}>
               <LinearGradient
                 colors={['#f59e0b', '#d97706']}
                 style={styles.storyCircle}
@@ -234,9 +387,9 @@ export default function HomeScreen({ refreshTrigger }) {
 
       {/* Feed Type Switcher */}
       <View style={styles.feedSwitcher}>
-        {['personalized', 'trending', 'chronological'].map((type) => (
+        {['personalized', 'trending', 'chronological'].map((type, index) => (
           <TouchableOpacity
-            key={type}
+            key={`feed-type-${type}-${index}-${Math.random().toString(36).substr(2, 9)}`}
             style={[styles.feedTypeButton, feedType === type && styles.activeFeedType]}
             onPress={() => setFeedType(type)}
           >
@@ -268,17 +421,38 @@ export default function HomeScreen({ refreshTrigger }) {
             />
           }
         >
-          {posts.map((post, index) => (
-            <PostCard key={`${post.username}-${index}`} {...post} />
-          ))}
+          {posts.map((post, index) => {
+            // Create a truly unique key using multiple identifiers
+            const uniqueKey = `${post.id || 'post'}-${index}-${post.username || 'user'}-${post.postedTime || Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            return (
+              <PostCard key={uniqueKey} {...post} />
+            );
+          })}
           
           {/* Load more indicator */}
-          <View style={styles.loadMoreContainer}>
-            <TouchableOpacity style={styles.loadMoreButton}>
-              <Text style={styles.loadMoreText}>Load More Posts</Text>
-              <Ionicons name="chevron-down" size={16} color="#10b981" />
-            </TouchableOpacity>
-          </View>
+          {hasMorePosts && (
+            <View style={styles.loadMoreContainer}>
+              <TouchableOpacity 
+                style={[styles.loadMoreButton, loadingMore && styles.loadMoreButtonDisabled]} 
+                onPress={loadMorePosts}
+                disabled={loadingMore}
+              >
+                <Text style={styles.loadMoreText}>
+                  {loadingMore ? 'Loading...' : 'Load More Posts'}
+                </Text>
+                {!loadingMore && (
+                  <Ionicons name="chevron-down" size={16} color="#10b981" />
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {!hasMorePosts && posts.length > 0 && (
+            <View style={styles.endOfFeedContainer}>
+              <Text style={styles.endOfFeedText}>🎵 You've reached the end! 🎵</Text>
+              <Text style={styles.endOfFeedSubtext}>Check back later for more amazing content</Text>
+            </View>
+          )}
         </ScrollView>
       </View>
 
@@ -390,12 +564,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     backgroundColor: '#111',
     borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#10b981',
     gap: 8,
+  },
+  loadMoreButtonDisabled: {
+    opacity: 0.6,
+    borderColor: '#666',
   },
   loadMoreText: {
     color: '#10b981',
     fontSize: 14,
     fontWeight: '500',
+  },
+  endOfFeedContainer: {
+    padding: 30,
+    alignItems: 'center',
+  },
+  endOfFeedText: {
+    color: '#10b981',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  endOfFeedSubtext: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
   },
   fab: {
     position: 'absolute',

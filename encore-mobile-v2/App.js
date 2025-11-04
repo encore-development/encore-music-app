@@ -1114,9 +1114,9 @@ export default function App() {
             />
           }
         >
-          {feedPosts.map((post) => (
+          {feedPosts.map((post, index) => (
             <PostCard
-              key={post.id}
+              key={post.id || `feed-post-${index}-${post.username || 'unknown'}-${Date.now()}`}
               post={post}
               onLike={() => handleLikePost(post.id)}
               onComment={() => openComments(post)}
