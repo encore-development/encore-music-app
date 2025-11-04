@@ -11,12 +11,114 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import PostCard from '../components/PostCard';
+import FeedService from '../services/FeedService';
+import EventBus from '../services/EventBus';
 
-export default function HomeScreen() {
+export default function HomeScreen({ refreshTrigger }) {
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState([]);
+  const [feedType, setFeedType] = useState('personalized'); // 'personalized', 'trending', 'chronological'
+  const [loading, setLoading] = useState(true);
 
-  const initialPosts = [
+  useEffect(() => {
+    loadFeed();
+  }, [feedType]);
+
+  // Refresh when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      console.log('Refresh trigger activated:', refreshTrigger);
+      FeedService.clearAllCache();
+      loadFeed();
+    }
+  }, [refreshTrigger]);
+
+  // Listen for new posts
+  useEffect(() => {
+    const handlePostCreated = (newPost) => {
+      console.log('New post created, refreshing feed:', newPost);
+      FeedService.clearAllCache();
+      loadFeed();
+    };
+
+    EventBus.on('postCreated', handlePostCreated);
+
+    return () => {
+      EventBus.off('postCreated', handlePostCreated);
+    };
+  }, []);
+
+  const loadFeed = async () => {
+    try {
+      setLoading(true);
+      let feedResult;
+
+      switch (feedType) {
+        case 'trending':
+          feedResult = await FeedService.getTrendingFeed();
+          break;
+        case 'chronological':
+          feedResult = await FeedService.getChronologicalFeed();
+          break;
+        default:
+          feedResult = await FeedService.generatePersonalizedFeed('current_user');
+      }
+
+      if (feedResult.success) {
+        console.log('Feed loaded successfully:', feedResult.posts.length, 'posts');
+        
+        // Convert our post format to the expected format
+        const formattedPosts = feedResult.posts.map(post => ({
+          id: post.id,
+          username: post.username,
+          displayName: post.displayName,
+          imageUrl: post.media?.uri || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&h=600&fit=crop",
+          description: post.content,
+          hashtags: post.tags || [],
+          userType: post.verified ? "artist" : "fan",
+          postedTime: getTimeAgo(post.timestamp),
+          audioSrc: post.musicTrack?.url,
+          likes: post.likes || 0,
+          comments: post.comments || 0,
+          shares: post.shares || 0,
+          feedScore: post.feedScore,
+          postType: post.type
+        }));
+
+        // If no real posts, mix with sample posts
+        if (formattedPosts.length === 0) {
+          console.log('No real posts found, showing sample posts');
+          setPosts(getSamplePosts());
+        } else {
+          console.log('Showing real posts:', formattedPosts.length);
+          // Mix real posts with some sample posts for better experience
+          const samplePosts = getSamplePosts().slice(0, 2);
+          setPosts([...formattedPosts, ...samplePosts]);
+        }
+      } else {
+        console.log('Feed loading failed, showing sample posts');
+        setPosts(getSamplePosts());
+      }
+    } catch (error) {
+      console.error('Error loading feed:', error);
+      setPosts(getSamplePosts());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTimeAgo = (timestamp) => {
+    const now = new Date();
+    const postTime = new Date(timestamp);
+    const diffHours = Math.floor((now - postTime) / (1000 * 60 * 60));
+    
+    if (diffHours < 1) return 'now';
+    if (diffHours < 24) return `${diffHours}h`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d`;
+  };
+
+  const getSamplePosts = () => [
     {
       username: "encore_music",
       imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&h=600&fit=crop",
@@ -66,24 +168,16 @@ export default function HomeScreen() {
     setPosts(initialPosts);
   }, []);
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    
-    // Simulate loading new posts
-    setTimeout(() => {
-      const newPost = {
-        username: "fresh_beats",
-        imageUrl: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=600&fit=crop",
-        description: "Just uploaded a new remix! What do you think? 🎵",
-        hashtags: ["remix", "fresh", "beats", "music"],
-        userType: "artist",
-        postedTime: "now",
-        audioSrc: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-      };
-      
-      setPosts([newPost, ...posts]);
-      setRefreshing(false);
-    }, 1500);
+    FeedService.clearAllCache(); // Clear cache to get fresh content
+    await loadFeed();
+    setRefreshing(false);
+  };
+
+  const handlePostInteraction = async (postId, interactionType, metadata = {}) => {
+    // Record interaction for algorithm learning
+    await FeedService.recordInteraction('current_user', postId, interactionType, metadata);
   };
 
   return (
@@ -97,6 +191,9 @@ export default function HomeScreen() {
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>Encore</Text>
             <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.headerButton} onPress={onRefresh}>
+                <Ionicons name="refresh-outline" size={24} color="#fff" />
+              </TouchableOpacity>
               <TouchableOpacity style={styles.headerButton}>
                 <Ionicons name="notifications-outline" size={24} color="#fff" />
               </TouchableOpacity>
@@ -133,6 +230,28 @@ export default function HomeScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+      </View>
+
+      {/* Feed Type Switcher */}
+      <View style={styles.feedSwitcher}>
+        {['personalized', 'trending', 'chronological'].map((type) => (
+          <TouchableOpacity
+            key={type}
+            style={[styles.feedTypeButton, feedType === type && styles.activeFeedType]}
+            onPress={() => setFeedType(type)}
+          >
+            <Text style={[styles.feedTypeText, feedType === type && styles.activeFeedTypeText]}>
+              {type === 'personalized' ? 'For You' : type === 'trending' ? 'Trending' : 'Latest'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Debug Info */}
+      <View style={styles.debugInfo}>
+        <Text style={styles.debugText}>
+          {posts.length} posts loaded • {feedType} feed {loading && '• Loading...'}
+        </Text>
       </View>
 
       {/* Feed */}
@@ -294,5 +413,41 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  feedSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#111',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    borderRadius: 12,
+    padding: 4,
+  },
+  feedTypeButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  activeFeedType: {
+    backgroundColor: '#10b981',
+  },
+  feedTypeText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  activeFeedTypeText: {
+    color: '#fff',
+  },
+  debugInfo: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#0a0a0a',
+  },
+  debugText: {
+    color: '#666',
+    fontSize: 10,
+    textAlign: 'center',
   },
 });

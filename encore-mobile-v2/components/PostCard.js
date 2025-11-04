@@ -60,24 +60,35 @@ export default function PostCard({
     if (onBookmark) onBookmark();
   };
 
+  const handleVideoLoad = (status) => {
+    if (status.isLoaded) {
+      setIsPlaying(status.isPlaying);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onUserPress}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarEmoji}>{post.user.avatar}</Text>
-          </View>
+          <LinearGradient
+            colors={['#667eea', '#764ba2']}
+            style={styles.avatar}
+          >
+            <Text style={styles.avatarText}>
+              {post.displayName ? post.displayName.split(' ').map(n => n[0]).join('') : 'AR'}
+            </Text>
+          </LinearGradient>
         </TouchableOpacity>
         <View style={styles.userInfo}>
           <View style={styles.userRow}>
-            <Text style={styles.username}>{post.user.displayName}</Text>
-            {post.user.verified && (
+            <Text style={styles.username}>{post.displayName || post.username}</Text>
+            {post.verified && (
               <Ionicons name="checkmark-circle" size={16} color="#10b981" style={styles.verifiedIcon} />
             )}
             <Text style={styles.time}>{formatTimeAgo(post.timestamp)}</Text>
           </View>
-          <Text style={styles.handle}>@{post.user.username}</Text>
+          <Text style={styles.handle}>@{post.username}</Text>
         </View>
         <TouchableOpacity style={styles.moreButton}>
           <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
@@ -98,14 +109,31 @@ export default function PostCard({
         )}
       </View>
 
-      {/* Image with double-tap */}
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={handleDoublePress}
-        style={styles.imageContainer}
-      >
-        <Image source={{ uri: post.image }} style={styles.image} />
-      </TouchableOpacity>
+      {/* Media (Image/Video) */}
+      {(post.media?.uri || post.imageUrl || post.image) && (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleDoublePress}
+          style={styles.imageContainer}
+        >
+          {post.media?.type === 'video' ? (
+            <View style={styles.videoContainer}>
+              <Image 
+                source={{ uri: post.media.uri || post.imageUrl || post.image }} 
+                style={styles.image} 
+              />
+              <View style={styles.videoOverlay}>
+                <Ionicons name="play-circle" size={50} color="rgba(255,255,255,0.8)" />
+              </View>
+            </View>
+          ) : (
+            <Image 
+              source={{ uri: post.media?.uri || post.imageUrl || post.image }} 
+              style={styles.image} 
+            />
+          )}
+        </TouchableOpacity>
+      )}
 
       {/* Audio Player */}
       {post.audio && (
@@ -182,12 +210,13 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(16,185,129,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarEmoji: {
-    fontSize: 20,
+  avatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   verifiedIcon: {
     marginLeft: 4,
@@ -261,6 +290,20 @@ const styles = StyleSheet.create({
   image: {
     width: width - 16,
     height: 400,
+    borderRadius: 12,
+  },
+  videoContainer: {
+    position: 'relative',
+  },
+  videoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     borderRadius: 12,
   },
   heartOverlay: {

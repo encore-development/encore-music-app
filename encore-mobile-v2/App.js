@@ -1,9 +1,15 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Image, TextInput, RefreshControl, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Image, TextInput, RefreshControl, SafeAreaView, Modal } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import PostCard from './components/PostCard';
+import ProfileScreen from './screens/ProfileScreen';
+import CameraScreen from './screens/CameraScreen';
+import PostCreationScreen from './screens/PostCreationScreen';
+import HomeScreen from './screens/HomeScreen';
+import PostService from './services/PostService';
 
 // Simple Storage System
 class EncoreStorage {
@@ -554,6 +560,7 @@ export default function App() {
       // Load all data
       await Promise.all([
         loadFeedPosts(1, true),
+        refreshHomeFeed(), // Load real posts on app start
         loadUserProfile(),
         loadTrendingContent(),
         loadCommunityData(),
@@ -585,6 +592,12 @@ export default function App() {
   const [encorePoints, setEncorePoints] = React.useState(2450);
   const [showPurchaseModal, setShowPurchaseModal] = React.useState(false);
   const [selectedPackage, setSelectedPackage] = React.useState(null);
+  const [showCreatePostModal, setShowCreatePostModal] = React.useState(false);
+  const [showVideoUploadModal, setShowVideoUploadModal] = React.useState(false);
+  const [showCameraScreen, setShowCameraScreen] = React.useState(false);
+  const [showPostCreation, setShowPostCreation] = React.useState(false);
+  const [capturedMedia, setCapturedMedia] = React.useState(null);
+  const [homeRefreshTrigger, setHomeRefreshTrigger] = React.useState(0);
   const [transactionHistory, setTransactionHistory] = React.useState([
     { id: 1, type: 'earned', amount: 50, description: 'Daily login bonus', date: '2 hours ago' },
     { id: 2, type: 'spent', amount: 100, description: 'Tipped @music_artist', date: '1 day ago' },
@@ -625,12 +638,7 @@ export default function App() {
       } else {
         await EncoreAPI.likePost(postId);
         
-        // Show demo success message
-        setTimeout(() => {
-          Alert.alert('❤️ Liked!', `You liked ${post.user.displayName}'s post!`, [
-            { text: 'OK', style: 'default' }
-          ]);
-        }, 500);
+
       }
     } catch (err) {
       console.error('Error liking post:', err);
@@ -656,7 +664,7 @@ export default function App() {
   const handleSharePost = async (postId) => {
     try {
       await EncoreAPI.sharePost(postId);
-      Alert.alert('Success', 'Post shared successfully!');
+      // Post shared silently
     } catch (err) {
       console.error('Error sharing post:', err);
       Alert.alert('Error', 'Failed to share post');
@@ -664,15 +672,18 @@ export default function App() {
   };
 
   const openComments = async (post) => {
-    setSelectedPostForComments(post);
+    // Initialize post with empty comments array to prevent render error
+    setSelectedPostForComments({ ...post, comments: [] });
     setShowCommentsModal(true);
     
     try {
-      const comments = await EncoreAPI.getPostComments(post.id);
+      const comments = await PostService.getComments(post.id);
       setSelectedPostForComments(prev => ({ ...prev, comments }));
     } catch (err) {
       console.error('Error loading comments:', err);
       Alert.alert('Error', 'Failed to load comments');
+      // Set empty array on error too
+      setSelectedPostForComments(prev => ({ ...prev, comments: [] }));
     }
   };
 
@@ -680,7 +691,8 @@ export default function App() {
     if (!newComment.trim() || !selectedPostForComments) return;
 
     try {
-      const comment = await EncoreAPI.addComment(selectedPostForComments.id, newComment.trim());
+      const result = await PostService.addComment(selectedPostForComments.id, 'current_user', newComment.trim());
+      const comment = result.comment;
       
       setSelectedPostForComments(prev => ({
         ...prev,
@@ -696,8 +708,7 @@ export default function App() {
 
       setNewComment('');
       
-      // Show demo success message
-      Alert.alert('💬 Comment Added!', 'Your comment has been posted successfully!');
+
     } catch (err) {
       console.error('Error adding comment:', err);
       Alert.alert('Error', 'Failed to add comment');
@@ -707,7 +718,7 @@ export default function App() {
   const handleFollowArtist = async (artistId) => {
     try {
       // Simulate follow action
-      Alert.alert('Success', 'Now following artist!');
+      // Following artist silently
     } catch (err) {
       console.error('Error following artist:', err);
     }
@@ -723,7 +734,7 @@ export default function App() {
           : event
       ));
 
-      Alert.alert('Success', 'Successfully joined the event!');
+      // Joined event silently
     } catch (err) {
       console.error('Error joining event:', err);
       Alert.alert('Error', 'Failed to join event');
@@ -732,7 +743,7 @@ export default function App() {
 
   const handleJoinSpace = async (spaceId) => {
     try {
-      Alert.alert('Success', 'Joined community space!');
+      // Joined community space silently
     } catch (err) {
       console.error('Error joining space:', err);
     }
@@ -758,7 +769,7 @@ export default function App() {
         ]
       }));
 
-      Alert.alert('Success', `Tipped $${amount} to artist!`);
+      // Tipped artist silently
     } catch (err) {
       console.error('Error tipping artist:', err);
       Alert.alert('Error', 'Failed to send tip');
@@ -851,6 +862,7 @@ export default function App() {
     try {
       await Promise.all([
         loadFeedPosts(1, true),
+        refreshHomeFeed(), // Add real posts to feed
         loadUserProfile(),
         loadTrendingContent(),
         loadCommunityData(),
@@ -895,17 +907,107 @@ export default function App() {
   };
 
   const handleCreatePost = () => {
-    Alert.alert(
-      '✨ Create Post',
-      'Choose what you want to share:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: '🎵 Audio Track', onPress: () => Alert.alert('🎵 Audio', 'Audio upload feature coming soon!') },
-        { text: '📸 Photo', onPress: () => Alert.alert('📸 Photo', 'Photo upload feature coming soon!') },
-        { text: '🎬 Video', onPress: () => Alert.alert('🎬 Video', 'Video upload feature coming soon!') },
-        { text: '📝 Text Post', onPress: () => Alert.alert('📝 Text', 'Text post feature coming soon!') },
-      ]
-    );
+    setShowCreatePostModal(true);
+  };
+
+  const handleCreatePostOption = (type) => {
+    setShowCreatePostModal(false);
+    
+    switch(type) {
+      case 'photo':
+        setShowCameraScreen(true);
+        break;
+      case 'reel':
+        setShowCameraScreen(true);
+        break;
+      case 'friend':
+        Alert.alert('👥 Friend Zone', 'Friend zone feature coming soon!');
+        break;
+      case 'community':
+        Alert.alert('👥 Community', 'Community post feature coming soon!');
+        break;
+    }
+  };
+
+  const handleCameraCapture = (media) => {
+    setShowCameraScreen(false);
+    // Handle the captured media here
+    console.log('Media captured:', media);
+  };
+
+  const handleMediaCaptured = (media) => {
+    setCapturedMedia(media);
+    setShowCameraScreen(false);
+    setShowPostCreation(true);
+  };
+
+  const refreshHomeFeed = async () => {
+    try {
+      const allPosts = await PostService.getAllPosts();
+      console.log('Refreshing home feed with posts:', allPosts.length);
+      console.log('First post media:', allPosts[0]?.media);
+      
+      // Convert to the format expected by the home feed
+      const formattedPosts = allPosts.map(post => ({
+        id: post.id,
+        username: post.username || 'alexmusic',
+        displayName: post.displayName || 'Alex Rodriguez',
+        imageUrl: post.media?.uri || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&h=600&fit=crop",
+        media: post.media, // Pass the full media object
+        content: post.content || 'New post',
+        description: post.content || 'New post', // For backward compatibility
+        tags: post.tags || [],
+        hashtags: post.tags || [], // For backward compatibility
+        userType: post.verified ? "artist" : "fan",
+        postedTime: getTimeAgo(post.timestamp),
+        timestamp: post.timestamp, // Keep original timestamp
+        audioSrc: post.musicTrack?.url,
+        likes: post.likes || 0,
+        comments: post.comments || 0,
+        shares: post.shares || 0,
+        verified: post.verified || false,
+      }));
+
+      // Add to existing feed posts
+      setFeedPosts(prevPosts => {
+        // Remove duplicates and add new posts at the beginning
+        const existingIds = prevPosts.map(p => p.id);
+        const newPosts = formattedPosts.filter(p => !existingIds.includes(p.id));
+        return [...newPosts, ...prevPosts];
+      });
+    } catch (error) {
+      console.error('Error refreshing home feed:', error);
+    }
+  };
+
+  const getTimeAgo = (timestamp) => {
+    const now = new Date();
+    const postTime = new Date(timestamp);
+    const diffHours = Math.floor((now - postTime) / (1000 * 60 * 60));
+    
+    if (diffHours < 1) return 'now';
+    if (diffHours < 24) return `${diffHours}h`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d`;
+  };
+
+  const handlePostCreated = (post) => {
+    setShowPostCreation(false);
+    setCapturedMedia(null);
+    
+    // Refresh the home feed immediately
+    refreshHomeFeed();
+    
+    // Switch to home tab to show the new post
+    setCurrentTab('Home');
+    
+    // Show success message
+    Alert.alert('🎉 Success!', 'Your post has been shared! Check your home feed to see it.');
+  };
+
+  const handleVideoUpload = () => {
+    Alert.alert('🎬 Video Upload', 'Video would be uploaded here!');
+    setShowVideoUploadModal(false);
   };
 
   const handleWithdraw = () => {
@@ -1042,148 +1144,154 @@ export default function App() {
         </ScrollView>
       </View>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity style={styles.fab}>
-        <LinearGradient
-          colors={['#10b981', '#059669']}
-          style={styles.fabGradient}
-        >
-          <Ionicons name="add" size={28} color="#fff" />
-        </LinearGradient>
-      </TouchableOpacity>
+
     </View>
   );
 
   const renderDiscoverScreen = () => (
     <View style={styles.container}>
-      <SafeAreaView style={styles.discoverHeaderNew}>
-        <View style={styles.headerTopRow}>
-          <Text style={styles.discoverTitleNew}>Discover</Text>
-          <TouchableOpacity style={styles.filterButton}>
-            <Ionicons name="options-outline" size={24} color="#10b981" />
+      <SafeAreaView style={styles.discoverHeaderPro}>
+        <View style={styles.headerTopRowPro}>
+          <View>
+            <Text style={styles.discoverTitlePro}>Discover</Text>
+            <Text style={styles.discoverSubtitlePro}>Find your next favorite song</Text>
+          </View>
+          <TouchableOpacity style={styles.filterButtonPro}>
+            <Ionicons name="options-outline" size={22} color="#10b981" />
           </TouchableOpacity>
         </View>
         
-        {/* Enhanced Search Bar */}
-        <View style={styles.searchBarNew}>
-          <Ionicons name="search" size={20} color="#666" />
+        {/* Professional Search Bar */}
+        <View style={styles.searchBarPro}>
+          <Ionicons name="search" size={18} color="#888" />
           <TextInput
-            style={styles.searchInputNew}
-            placeholder="Search artists, songs, playlists..."
-            placeholderTextColor="#666"
+            style={styles.searchInputPro}
+            placeholder="Search for artists, songs, albums..."
+            placeholderTextColor="#888"
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-          <TouchableOpacity style={styles.micButton}>
-            <Ionicons name="mic-outline" size={20} color="#10b981" />
+          <TouchableOpacity style={styles.micButtonPro}>
+            <Ionicons name="mic-outline" size={18} color="#10b981" />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
 
-      <ScrollView style={styles.discoverContentNew} showsVerticalScrollIndicator={false}>
-        {/* Quick Actions */}
-        <View style={styles.quickActionsSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickActionsScroll}>
-            {[
-              { name: "Charts", icon: "trending-up", color: "#ff6b6b" },
-              { name: "New Music", icon: "musical-notes", color: "#4ecdc4" },
-              { name: "Podcasts", icon: "radio", color: "#45b7d1" },
-              { name: "Live", icon: "radio-outline", color: "#96ceb4" },
-              { name: "Playlists", icon: "list", color: "#feca57" },
-            ].map((action, index) => (
-              <TouchableOpacity key={index} style={[styles.quickActionCard, { backgroundColor: action.color + '20' }]}>
-                <View style={[styles.quickActionIcon, { backgroundColor: action.color }]}>
-                  <Ionicons name={action.icon} size={20} color="#fff" />
-                </View>
-                <Text style={styles.quickActionText}>{action.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+      <ScrollView style={styles.discoverContentPro} showsVerticalScrollIndicator={false}>
 
-        {/* Featured Playlist */}
-        <View style={styles.featuredSection}>
-          <Text style={styles.sectionTitleNew}>🔥 Featured Today</Text>
-          <TouchableOpacity style={styles.featuredCard}>
+
+        {/* Featured Content */}
+        <View style={styles.featuredSectionPro}>
+          <View style={styles.sectionHeaderPro}>
+            <Text style={styles.sectionTitlePro}>Featured Today</Text>
+            <TouchableOpacity>
+              <Text style={styles.viewAllTextPro}>View all</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <TouchableOpacity style={styles.featuredCardPro} activeOpacity={0.8}>
             <LinearGradient
-              colors={['#667eea', '#764ba2']}
-              style={styles.featuredGradient}
+              colors={['#1a1a2e', '#16213e', '#0f3460']}
+              style={styles.featuredGradientPro}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             >
-              <View style={styles.featuredContent}>
-                <Text style={styles.featuredTitle}>Chill Vibes Mix</Text>
-                <Text style={styles.featuredSubtitle}>Perfect for relaxing • 2.1M plays</Text>
-                <TouchableOpacity style={styles.playButton}>
-                  <Ionicons name="play" size={16} color="#fff" />
-                  <Text style={styles.playButtonText}>Play Now</Text>
+              <View style={styles.featuredContentPro}>
+                <View style={styles.featuredTextPro}>
+                  <Text style={styles.featuredTitlePro}>Today's Top Hits</Text>
+                  <Text style={styles.featuredSubtitlePro}>The most played songs right now</Text>
+                  <View style={styles.featuredStatsPro}>
+                    <Text style={styles.featuredStatsTextPro}>2.1M plays</Text>
+                    <Text style={styles.featuredStatsTextPro}>•</Text>
+                    <Text style={styles.featuredStatsTextPro}>50 songs</Text>
+                  </View>
+                </View>
+                <TouchableOpacity style={styles.playButtonPro}>
+                  <Ionicons name="play" size={20} color="#fff" />
                 </TouchableOpacity>
               </View>
-              <View style={styles.featuredArt}>
-                <Text style={styles.featuredEmoji}>🎵</Text>
+              <View style={styles.featuredArtPro}>
+                <LinearGradient
+                  colors={['#10b981', '#059669']}
+                  style={styles.featuredArtGradient}
+                >
+                  <Ionicons name="musical-notes" size={24} color="#fff" />
+                </LinearGradient>
               </View>
             </LinearGradient>
           </TouchableOpacity>
         </View>
 
-        {/* Browse by Mood */}
-        <View style={styles.moodSection}>
-          <View style={styles.sectionHeaderNew}>
-            <Text style={styles.sectionTitleNew}>Browse by Mood</Text>
+        {/* Browse by Genre */}
+        <View style={styles.genreSectionPro}>
+          <View style={styles.sectionHeaderPro}>
+            <Text style={styles.sectionTitlePro}>Browse by Genre</Text>
             <TouchableOpacity>
-              <Text style={styles.viewAllTextNew}>See all</Text>
+              <Text style={styles.viewAllTextPro}>View all</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.moodGrid}>
+          <View style={styles.genreGridPro}>
             {[
-              { name: "Happy", emoji: "😊", color: "#feca57", tracks: "1.2K" },
-              { name: "Chill", emoji: "😌", color: "#48dbfb", tracks: "890" },
-              { name: "Workout", emoji: "💪", color: "#ff9ff3", tracks: "2.1K" },
-              { name: "Focus", emoji: "🧠", color: "#54a0ff", tracks: "756" },
-              { name: "Party", emoji: "🎉", color: "#5f27cd", tracks: "1.8K" },
-              { name: "Sleep", emoji: "😴", color: "#00d2d3", tracks: "432" },
-            ].map((mood, index) => (
-              <TouchableOpacity key={index} style={[styles.moodCard, { backgroundColor: mood.color + '20' }]}>
-                <Text style={styles.moodEmoji}>{mood.emoji}</Text>
-                <Text style={styles.moodName}>{mood.name}</Text>
-                <Text style={styles.moodTracks}>{mood.tracks} tracks</Text>
+              { name: "Pop", color: "#ff6b6b", tracks: "12.5K", icon: "musical-notes" },
+              { name: "Hip Hop", color: "#4ecdc4", tracks: "8.9K", icon: "mic" },
+              { name: "Rock", color: "#45b7d1", tracks: "6.2K", icon: "radio" },
+              { name: "Electronic", color: "#96ceb4", tracks: "4.8K", icon: "pulse" },
+              { name: "Jazz", color: "#feca57", tracks: "3.1K", icon: "musical-note" },
+              { name: "Classical", color: "#ff9ff3", tracks: "2.4K", icon: "library" },
+            ].map((genre, index) => (
+              <TouchableOpacity key={index} style={styles.genreCardPro} activeOpacity={0.8}>
+                <LinearGradient
+                  colors={[genre.color + '20', genre.color + '10']}
+                  style={styles.genreGradientPro}
+                >
+                  <View style={[styles.genreIconPro, { backgroundColor: genre.color }]}>
+                    <Ionicons name={genre.icon} size={18} color="#fff" />
+                  </View>
+                  <Text style={styles.genreNamePro}>{genre.name}</Text>
+                  <Text style={styles.genreTracksPro}>{genre.tracks} songs</Text>
+                </LinearGradient>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
         {/* Trending Artists */}
-        <View style={styles.artistsSection}>
-          <View style={styles.sectionHeaderNew}>
-            <Text style={styles.sectionTitleNew}>Trending Artists</Text>
+        <View style={styles.artistsSectionPro}>
+          <View style={styles.sectionHeaderPro}>
+            <Text style={styles.sectionTitlePro}>Trending Artists</Text>
             <TouchableOpacity>
-              <Text style={styles.viewAllTextNew}>See all</Text>
+              <Text style={styles.viewAllTextPro}>View all</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.artistsScroll}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.artistsScrollPro}>
             {[
-              { name: "Luna", followers: "2.1M", verified: true, color: "#ff6b6b" },
-              { name: "Echo", followers: "1.8M", verified: true, color: "#4ecdc4" },
-              { name: "Nova", followers: "1.5M", verified: false, color: "#45b7d1" },
-              { name: "Zen", followers: "1.2M", verified: true, color: "#96ceb4" },
-              { name: "Vibe", followers: "980K", verified: false, color: "#feca57" },
+              { name: "Olivia Chen", followers: "2.1M", verified: true, genre: "Pop" },
+              { name: "Marcus Rivera", followers: "1.8M", verified: true, genre: "Hip Hop" },
+              { name: "Luna Park", followers: "1.5M", verified: false, genre: "Indie" },
+              { name: "Alex Thompson", followers: "1.2M", verified: true, genre: "Electronic" },
+              { name: "Sofia Martinez", followers: "980K", verified: false, genre: "R&B" },
             ].map((artist, index) => (
-              <TouchableOpacity key={index} style={styles.artistCard}>
-                <LinearGradient
-                  colors={[artist.color, artist.color + '80']}
-                  style={styles.artistAvatar}
-                >
-                  <Text style={styles.artistInitial}>{artist.name[0]}</Text>
-                </LinearGradient>
-                <View style={styles.artistInfo}>
-                  <View style={styles.artistNameRow}>
-                    <Text style={styles.artistName}>{artist.name}</Text>
-                    {artist.verified && <Ionicons name="checkmark-circle" size={14} color="#10b981" />}
-                  </View>
-                  <Text style={styles.artistFollowers}>{artist.followers}</Text>
+              <TouchableOpacity key={index} style={styles.artistCardPro} activeOpacity={0.8}>
+                <View style={styles.artistAvatarPro}>
+                  <LinearGradient
+                    colors={['#10b981', '#059669']}
+                    style={styles.artistAvatarGradient}
+                  >
+                    <Text style={styles.artistInitialPro}>{artist.name.split(' ').map(n => n[0]).join('')}</Text>
+                  </LinearGradient>
+                  {artist.verified && (
+                    <View style={styles.verifiedBadgePro}>
+                      <Ionicons name="checkmark-circle" size={16} color="#10b981" />
+                    </View>
+                  )}
                 </View>
-                <TouchableOpacity style={styles.followBtn}>
-                  <Text style={styles.followBtnText}>Follow</Text>
+                <View style={styles.artistInfoPro}>
+                  <Text style={styles.artistNamePro}>{artist.name}</Text>
+                  <Text style={styles.artistGenrePro}>{artist.genre}</Text>
+                  <Text style={styles.artistFollowersPro}>{artist.followers} followers</Text>
+                </View>
+                <TouchableOpacity style={styles.followBtnPro}>
+                  <Text style={styles.followBtnTextPro}>Follow</Text>
                 </TouchableOpacity>
               </TouchableOpacity>
             ))}
@@ -1223,9 +1331,6 @@ export default function App() {
       {/* Clean Header */}
       <View style={styles.communityHeaderClean}>
         <Text style={styles.communityTitleClean}>Community</Text>
-        <TouchableOpacity style={styles.createButtonClean} onPress={handleCreatePost}>
-          <Ionicons name="add" size={20} color="#10b981" />
-        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.discoverContent} showsVerticalScrollIndicator={false}>
@@ -1452,120 +1557,9 @@ export default function App() {
     </View>
   );
 
-  const renderProfileScreen = () => (
-    <View style={styles.container}>
-      {/* Profile Header with Settings Icon */}
-      <View style={styles.profileTopHeader}>
-        <Text style={styles.profileScreenTitle}>Profile</Text>
-        <TouchableOpacity 
-          style={styles.settingsIconButton}
-          onPress={() => setShowSettingsModal(true)}
-        >
-          <Ionicons name="settings-outline" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
-      
-      <ScrollView style={styles.discoverContent}>
-        <View style={styles.profileHeader}>
-          <LinearGradient
-            colors={profileData.avatarColor}
-            style={styles.profileAvatar}
-          >
-            {profileData.profilePicture ? (
-              <Image source={{ uri: profileData.profilePicture }} style={styles.profileImage} />
-            ) : (
-              <Text style={styles.avatarText}>
-                {profileData.displayName.charAt(0).toUpperCase()}
-              </Text>
-            )}
-          </LinearGradient>
-          
-          <Text style={styles.displayName}>{profileData.displayName}</Text>
-          <Text style={styles.username}>@{profileData.username}</Text>
-          <Text style={styles.bio}>{profileData.bio}</Text>
-          
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{formatCount(profileData.posts)}</Text>
-              <Text style={styles.statLabel}>Posts</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{formatCount(profileData.followers)}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{formatCount(profileData.following)}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </View>
-          </View>
-          
-          <TouchableOpacity 
-            style={styles.editButton}
-            onPress={() => setShowEditModal(true)}
-          >
-            <Text style={styles.editButtonText}>Edit Profile</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Profile Tabs */}
-        <View style={styles.profileTabs}>
-          <TouchableOpacity style={[styles.profileTab, styles.activeProfileTab]}>
-            <Ionicons name="grid-outline" size={20} color="#10b981" />
-            <Text style={[styles.profileTabText, styles.activeProfileTabText]}>Posts</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.profileTab}>
-            <Ionicons name="musical-notes-outline" size={20} color="#666" />
-            <Text style={styles.profileTabText}>Tracks</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.profileTab}>
-            <Ionicons name="heart-outline" size={20} color="#666" />
-            <Text style={styles.profileTabText}>Liked</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Recent Activity */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🎵 Recent Activity</Text>
-          {[
-            { type: 'posted', content: 'New track: "Midnight Vibes"', time: '2h ago', icon: 'musical-notes' },
-            { type: 'liked', content: 'Liked "Electric Dreams" by Synth Wave', time: '5h ago', icon: 'heart' },
-            { type: 'followed', content: 'Started following DJ Luna', time: '1d ago', icon: 'person-add' },
-            { type: 'commented', content: 'Commented on "Ocean Breeze"', time: '2d ago', icon: 'chatbubble' },
-          ].map((activity, index) => (
-            <View key={index} style={styles.activityItem}>
-              <View style={styles.activityIcon}>
-                <Ionicons name={activity.icon} size={16} color="#10b981" />
-              </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityText}>{activity.content}</Text>
-                <Text style={styles.activityTime}>{activity.time}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-
-
-
-        <View style={styles.postsGrid}>
-          {Array.from({ length: 9 }).map((_, index) => (
-            <TouchableOpacity 
-              key={index} 
-              style={styles.gridPost}
-              onPress={() => {
-                setSelectedPost(index);
-                setShowPostModal(true);
-              }}
-            >
-              <Image 
-                source={{ uri: `https://images.unsplash.com/photo-${1511671782779 + index}?w=200&h=200&fit=crop` }} 
-                style={styles.gridPostImage} 
-              />
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
-    </View>
-  );
+  const renderProfileScreen = () => {
+    return <ProfileScreen onNavigate={(screen) => setCurrentTab(screen)} />;
+  };
 
   const renderCurrentScreen = () => {
     switch (currentTab) {
@@ -1603,8 +1597,9 @@ export default function App() {
   }
 
   return (
-    <View style={styles.app}>
-      <StatusBar style="light" />
+    <SafeAreaProvider>
+      <View style={styles.app}>
+        <StatusBar style="light" />
       
       {renderCurrentScreen()}
 
@@ -1613,21 +1608,23 @@ export default function App() {
         <View style={styles.modalOverlay}>
           <View style={styles.commentsModal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Comments ({(selectedPostForComments.comments || []).length})</Text>
+              <Text style={styles.modalTitle}>Comments ({(selectedPostForComments?.comments || []).length})</Text>
               <TouchableOpacity onPress={() => setShowCommentsModal(false)}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
             </View>
             
             <ScrollView style={styles.commentsList}>
-              {(selectedPostForComments.comments || []).map((comment) => (
+              {(selectedPostForComments?.comments || []).map((comment) => (
                 <View key={comment.id} style={styles.commentItem}>
                   <View style={styles.commentHeader}>
                     <View style={styles.commentAvatar}>
-                      <Text style={styles.commentAvatarText}>{comment.user.avatar}</Text>
+                      <Text style={styles.commentAvatarText}>
+                        {comment.displayName ? comment.displayName.split(' ').map(n => n[0]).join('') : 'AR'}
+                      </Text>
                     </View>
                     <View style={styles.commentContent}>
-                      <Text style={styles.commentUsername}>{comment.user.displayName}</Text>
+                      <Text style={styles.commentUsername}>{comment.displayName || comment.username}</Text>
                       <Text style={styles.commentText}>{comment.text}</Text>
                       <View style={styles.commentMeta}>
                         <Text style={styles.commentTime}>{new Date(comment.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
@@ -1640,7 +1637,7 @@ export default function App() {
                 </View>
               ))}
               
-              {(!selectedPostForComments.comments || selectedPostForComments.comments.length === 0) && (
+              {(!selectedPostForComments?.comments || selectedPostForComments.comments.length === 0) && (
                 <View style={styles.noCommentsContainer}>
                   <Text style={styles.noCommentsText}>No comments yet. Be the first to comment!</Text>
                 </View>
@@ -2080,6 +2077,20 @@ export default function App() {
         </View>
       )}
 
+      {/* Floating Action Button */}
+      <TouchableOpacity 
+        style={styles.fab}
+        onPress={handleCreatePost}
+        activeOpacity={0.8}
+      >
+        <LinearGradient
+          colors={['#10b981', '#059669']}
+          style={styles.fabGradient}
+        >
+          <Ionicons name="add" size={32} color="#fff" />
+        </LinearGradient>
+      </TouchableOpacity>
+
       {/* Bottom Tab Bar */}
       <View style={styles.tabBar}>
         {[
@@ -2105,7 +2116,178 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
-    </View>
+
+      {/* Create Post Modal */}
+      <Modal
+        visible={showCreatePostModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowCreatePostModal(false)}
+      >
+        <SafeAreaView style={styles.createPostModal}>
+          <View style={styles.createPostHeader}>
+            <TouchableOpacity 
+              style={styles.createPostClose}
+              onPress={() => setShowCreatePostModal(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.createPostContent}>
+            {/* Create Post Option */}
+            <TouchableOpacity 
+              style={styles.createPostOption}
+              onPress={() => handleCreatePostOption('photo')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.createPostIcon}>
+                <Ionicons name="camera-outline" size={32} color="#fff" />
+              </View>
+              <Text style={styles.createPostTitle}>Create Post</Text>
+            </TouchableOpacity>
+
+            {/* Friend Zone Option */}
+            <TouchableOpacity 
+              style={styles.createPostOption}
+              onPress={() => handleCreatePostOption('friend')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.createPostIcon}>
+                <Ionicons name="person-add-outline" size={32} color="#fff" />
+              </View>
+              <Text style={styles.createPostTitle}>Friend Zone</Text>
+            </TouchableOpacity>
+
+            {/* Reels Option */}
+            <TouchableOpacity 
+              style={styles.createPostOption}
+              onPress={() => handleCreatePostOption('reel')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.createPostIcon}>
+                <Ionicons name="videocam-outline" size={32} color="#fff" />
+              </View>
+              <Text style={styles.createPostTitle}>Reels</Text>
+              <View style={styles.reelPreview}>
+                <View style={styles.reelBar} />
+                <View style={styles.reelBar} />
+                <View style={styles.reelBar} />
+              </View>
+            </TouchableOpacity>
+
+            {/* Community Option */}
+            <TouchableOpacity 
+              style={styles.createPostOption}
+              onPress={() => handleCreatePostOption('community')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.createPostIcon}>
+                <Ionicons name="people-outline" size={32} color="#fff" />
+              </View>
+              <Text style={styles.createPostTitle}>Community</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Video Upload Modal */}
+      <Modal
+        visible={showVideoUploadModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowVideoUploadModal(false)}
+      >
+        <View style={styles.videoUploadModal}>
+          <SafeAreaView style={styles.videoUploadHeader}>
+            <TouchableOpacity 
+              style={styles.videoUploadClose}
+              onPress={() => setShowVideoUploadModal(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.videoUploadTitle}>Create Reel</Text>
+            <TouchableOpacity 
+              style={styles.videoUploadNext}
+              onPress={handleVideoUpload}
+            >
+              <Text style={styles.videoUploadNextText}>Next</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
+
+          <View style={styles.videoUploadContent}>
+            {/* Camera Preview Area */}
+            <View style={styles.cameraPreview}>
+              <View style={styles.cameraPlaceholder}>
+                <Ionicons name="videocam-outline" size={64} color="#666" />
+                <Text style={styles.cameraPlaceholderText}>Tap to record</Text>
+              </View>
+            </View>
+
+            {/* Recording Controls */}
+            <View style={styles.recordingControls}>
+              <TouchableOpacity style={styles.flipCameraButton}>
+                <Ionicons name="camera-reverse-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.recordButton}>
+                <View style={styles.recordButtonInner} />
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.galleryButton}>
+                <Ionicons name="images-outline" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Recording Options */}
+            <View style={styles.recordingOptions}>
+              <TouchableOpacity style={styles.recordingOption}>
+                <Text style={styles.recordingOptionText}>15s</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.recordingOption, styles.recordingOptionActive]}>
+                <Text style={[styles.recordingOptionText, styles.recordingOptionActiveText]}>30s</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.recordingOption}>
+                <Text style={styles.recordingOptionText}>60s</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Camera Screen */}
+      {showCameraScreen && (
+        <Modal
+          visible={showCameraScreen}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowCameraScreen(false)}
+        >
+          <CameraScreen
+            onClose={() => setShowCameraScreen(false)}
+            onCapture={handleCameraCapture}
+            onMediaCaptured={handleMediaCaptured}
+          />
+        </Modal>
+      )}
+
+      {/* Post Creation Screen */}
+      {showPostCreation && (
+        <Modal
+          visible={showPostCreation}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowPostCreation(false)}
+        >
+          <PostCreationScreen
+            route={{ params: { media: capturedMedia } }}
+            onClose={() => setShowPostCreation(false)}
+            onPostCreated={handlePostCreated}
+          />
+        </Modal>
+      )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
@@ -2167,97 +2349,159 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  // New Discover Screen Styles
-  discoverHeaderNew: {
-    paddingHorizontal: 20,
+  // Professional Discover Screen Styles
+  discoverHeaderPro: {
+    paddingHorizontal: 24,
     paddingTop: 50,
-    paddingBottom: 20,
+    paddingBottom: 24,
+    backgroundColor: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  headerTopRowPro: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  discoverTitlePro: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  discoverSubtitlePro: {
+    color: '#888',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  filterButtonPro: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  searchBarPro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  searchInputPro: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+  },
+  micButtonPro: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#10b981' + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  discoverContentPro: {
+    flex: 1,
     backgroundColor: '#000',
   },
-  headerTopRow: {
+  
+
+
+  // Professional Section Styles
+  sectionHeaderPro: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  discoverTitleNew: {
+  sectionTitlePro: {
     color: '#fff',
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  filterButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#111',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchBarNew: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#111',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  searchInputNew: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 16,
-  },
-  micButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#10b981' + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  discoverContentNew: {
-    flex: 1,
-  },
-  
-  // Quick Actions
-  quickActionsSection: {
-    paddingVertical: 20,
-  },
-  quickActionsScroll: {
-    paddingLeft: 20,
-  },
-  quickActionCard: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    marginRight: 12,
-    minWidth: 80,
-  },
-  quickActionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  quickActionText: {
-    color: '#fff',
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: '600',
+    letterSpacing: -0.3,
+  },
+  viewAllTextPro: {
+    color: '#10b981',
+    fontSize: 14,
+    fontWeight: '500',
   },
 
-  // Featured Section
-  featuredSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+  // Professional Featured Section
+  featuredSectionPro: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
   },
-  sectionTitleNew: {
+  featuredCardPro: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  featuredGradientPro: {
+    padding: 20,
+    minHeight: 120,
+    justifyContent: 'space-between',
+  },
+  featuredContentPro: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  featuredTextPro: {
+    flex: 1,
+  },
+  featuredTitlePro: {
     color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  featuredSubtitlePro: {
+    color: '#ccc',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  featuredStatsPro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  featuredStatsTextPro: {
+    color: '#888',
+    fontSize: 12,
+  },
+  playButtonPro: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 16,
+  },
+  featuredArtPro: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  featuredArtGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   featuredCard: {
     borderRadius: 20,
@@ -2310,98 +2554,116 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
 
-  // Mood Section
-  moodSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+  // Professional Genre Section
+  genreSectionPro: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
   },
-  sectionHeaderNew: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  viewAllTextNew: {
-    color: '#10b981',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  moodGrid: {
+  genreGridPro: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
   },
-  moodCard: {
+  genreCardPro: {
     width: '47%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  genreGradientPro: {
     padding: 16,
+    minHeight: 100,
+    justifyContent: 'space-between',
+  },
+  genreIconPro: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
-    alignItems: 'center',
-  },
-  moodEmoji: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  moodName: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  moodTracks: {
-    color: '#666',
-    fontSize: 12,
-  },
-
-  // Artists Section
-  artistsSection: {
-    marginBottom: 24,
-  },
-  artistsScroll: {
-    paddingLeft: 20,
-  },
-  artistCard: {
-    alignItems: 'center',
-    marginRight: 16,
-    width: 120,
-  },
-  artistAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
-  artistInitial: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  artistInfo: {
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  artistNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  artistName: {
+  genreNamePro: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+    marginBottom: 4,
   },
-  artistFollowers: {
-    color: '#666',
-    fontSize: 12,
+  genreTracksPro: {
+    color: '#888',
+    fontSize: 11,
   },
-  followBtn: {
+
+  // Professional Artists Section
+  artistsSectionPro: {
+    paddingVertical: 20,
+    marginBottom: 24,
+  },
+  artistsScrollPro: {
+    paddingLeft: 24,
+  },
+  artistCardPro: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 16,
+    marginRight: 16,
+    width: 160,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  artistAvatarPro: {
+    alignItems: 'center',
+    marginBottom: 12,
+    position: 'relative',
+  },
+  artistAvatarGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  artistInitialPro: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  verifiedBadgePro: {
+    position: 'absolute',
+    bottom: -2,
+    right: 12,
+    backgroundColor: '#000',
+    borderRadius: 8,
+    padding: 1,
+  },
+  artistInfoPro: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  artistNamePro: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  artistGenrePro: {
+    color: '#10b981',
+    fontSize: 11,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  artistFollowersPro: {
+    color: '#888',
+    fontSize: 11,
+  },
+  followBtnPro: {
     backgroundColor: '#10b981',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    alignSelf: 'center',
   },
-  followBtnText: {
+  followBtnTextPro: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
@@ -2494,13 +2756,14 @@ const styles = StyleSheet.create({
   // FAB Styles
   fab: {
     position: 'absolute',
-    bottom: 50,
+    bottom: 140,
     right: 20,
-    elevation: 8,
+    elevation: 10,
     shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    zIndex: 1000,
   },
   fabGradient: {
     width: 56,
@@ -3992,29 +4255,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  quickActions: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 24,
-    gap: 12,
-  },
-  quickActionCard: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  quickActionGradient: {
-    padding: 16,
-    alignItems: 'center',
-    gap: 8,
-  },
-  quickActionLabel: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
+
   communityStatsNew: {
     paddingHorizontal: 16,
     marginBottom: 32,
@@ -5109,14 +5350,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   createButtonClean: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(16,185,129,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#10b981',
+    zIndex: 1000,
+    elevation: 5,
   },
 
   // Live Now Card
@@ -5261,5 +5504,182 @@ const styles = StyleSheet.create({
   activityTimeClean: {
     color: '#666',
     fontSize: 12,
+  },
+
+  // Create Post Modal Styles
+  createPostModal: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  createPostHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+  },
+  createPostClose: {
+    alignSelf: 'flex-end',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  createPostContent: {
+    flex: 1,
+    paddingHorizontal: 40,
+    paddingTop: 20,
+    paddingBottom: 40,
+    justifyContent: 'space-evenly',
+  },
+  createPostOption: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  createPostIcon: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#555',
+  },
+  createPostTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  reelPreview: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 8,
+  },
+  reelBar: {
+    width: 20,
+    height: 3,
+    backgroundColor: '#10b981',
+    borderRadius: 2,
+  },
+
+  // Video Upload Modal Styles
+  videoUploadModal: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  videoUploadHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  videoUploadClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoUploadTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  videoUploadNext: {
+    backgroundColor: '#10b981',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  videoUploadNextText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  videoUploadContent: {
+    flex: 1,
+  },
+  cameraPreview: {
+    flex: 1,
+    backgroundColor: '#111',
+    margin: 20,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraPlaceholder: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  cameraPlaceholderText: {
+    color: '#666',
+    fontSize: 16,
+  },
+  recordingControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 30,
+  },
+  flipCameraButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#333',
+  },
+  recordButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ff4444',
+  },
+  galleryButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordingOptions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    paddingBottom: 40,
+  },
+  recordingOption: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#333',
+  },
+  recordingOptionActive: {
+    backgroundColor: '#10b981',
+  },
+  recordingOptionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  recordingOptionActiveText: {
+    fontWeight: '600',
   },
 });
